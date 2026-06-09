@@ -18,6 +18,13 @@ import yt_dlp
 
 
 def slugify(text: str) -> str:
+    # Si es una URL de YouTube, intentamos extraer el nombre del canal o usuario
+    if "youtube.com/@" in text:
+        text = text.split("youtube.com/@")[-1].split("/")[0]
+    elif text.startswith("http"):
+        # Extraer la última parte de la URL
+        text = text.rstrip("/").split("/")[-1]
+
     text = text.strip().lower()
     text = re.sub(r"[^\w\s-]", "", text, flags=re.UNICODE)
     text = re.sub(r"[-\s]+", "_", text)
@@ -26,17 +33,24 @@ def slugify(text: str) -> str:
 
 def buscar_videos(nombre: str, max_resultados: int, cookies_from_browser: str = None) -> list[dict]:
     if nombre.startswith("http://") or nombre.startswith("https://"):
+        # Si es un canal genérico sin pestaña, forzamos la pestaña /videos para que no traiga las listas de reproducción del canal
+        if any(x in nombre for x in ["youtube.com/@", "youtube.com/channel/", "youtube.com/c/"]):
+            pestañas = ["/videos", "/shorts", "/streams", "/playlists", "/releases", "/podcasts"]
+            if not any(p in nombre for p in pestañas):
+                nombre = nombre.rstrip("/") + "/videos"
         consulta = nombre
     else:
-        consulta = f"ytsearch{max_resultados}:{nombre}"
+        consulta = f"ytsearch{max_resultados if max_resultados > 0 else 50}:{nombre}"
         
     opciones = {
         "quiet": True,
         "no_warnings": True,
         "extract_flat": "in_playlist",
         "skip_download": True,
-        "playlistend": max_resultados,
     }
+    
+    if max_resultados > 0:
+        opciones["playlistend"] = max_resultados
     
     if cookies_from_browser:
         opciones["cookiesfrombrowser"] = (cookies_from_browser,)
@@ -199,7 +213,7 @@ def main() -> int:
         "--max",
         type=int,
         default=5,
-        help="Cantidad máxima de videos (default: 5)",
+        help="Cantidad máxima de videos (default: 5, usar 0 para descargar TODOS)",
     )
     parser.add_argument(
         "-o",
@@ -236,7 +250,8 @@ def main() -> int:
     idiomas = [i.strip() for i in args.idiomas.split(",") if i.strip()]
     carpeta_persona = args.salida / slugify(nombre)
 
-    print(f"Buscando videos de «{nombre}» (máx. {args.max})...")
+    limite_texto = "TODOS" if args.max == 0 else args.max
+    print(f"Buscando videos de «{nombre}» (máx. {limite_texto})...")
     try:
         videos = buscar_videos(nombre, args.max, args.cookies_from_browser)
     except Exception as exc:
