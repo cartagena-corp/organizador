@@ -79,28 +79,15 @@ def buscar_videos(nombre: str, max_resultados: int, cookies_from_browser: str = 
 
 
 def obtener_transcripcion(
+    ydl: yt_dlp.YoutubeDL,
     video_id: str,
     idiomas_preferidos: list[str],
-    cookies_from_browser: str = None,
 ) -> tuple[str, str] | None:
     url = f"https://www.youtube.com/watch?v={video_id}"
-    
-    # Configuramos yt-dlp solo para extraer los subtítulos/subtítulos automáticos
-    opciones = {
-        "writeautomaticsub": True,  # Traer automáticos
-        "writesubtitles": True,       # Traer manuales
-        "skip_download": True,
-        "quiet": True,
-        "no_warnings": True,
-    }
-    
-    if cookies_from_browser:
-        opciones["cookiesfrombrowser"] = (cookies_from_browser,)
 
     try:
-        with yt_dlp.YoutubeDL(opciones) as ydl:
-            info = ydl.extract_info(url, download=False)
-            
+        info = ydl.extract_info(url, download=False)
+        
         # Unimos subtítulos manuales y automáticos
         subtitulos = {}
         if info.get("subtitles"):
@@ -264,10 +251,22 @@ def main() -> int:
 
     print(f"Encontrados {len(videos)} videos. Obteniendo transcripciones...\n")
 
+    opciones_transcript = {
+        "writeautomaticsub": True,
+        "writesubtitles": True,
+        "skip_download": True,
+        "quiet": True,
+        "no_warnings": True,
+        "ignoreerrors": True,
+    }
+    if args.cookies_from_browser:
+        opciones_transcript["cookiesfrombrowser"] = (args.cookies_from_browser,)
+
     resultados: list[dict] = []
-    for i, video in enumerate(videos, start=1):
-        print(f"[{i}/{len(videos)}] {video['titulo'][:70]}...")
-        resultado = obtener_transcripcion(video["id"], idiomas, args.cookies_from_browser)
+    with yt_dlp.YoutubeDL(opciones_transcript) as ydl_transcripciones:
+        for i, video in enumerate(videos, start=1):
+            print(f"[{i}/{len(videos)}] {video['titulo'][:70]}...")
+            resultado = obtener_transcripcion(ydl_transcripciones, video["id"], idiomas)
 
         item = {**video, "texto": None, "idioma": None, "error": None}
         if resultado:
