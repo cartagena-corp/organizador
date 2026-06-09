@@ -75,6 +75,7 @@ def buscar_videos(nombre: str, max_resultados: int, cookies_from_browser: str = 
                 "url": f"https://www.youtube.com/watch?v={video_id}",
                 "canal": entrada.get("uploader") or entrada.get("channel"),
                 "duracion_seg": entrada.get("duration"),
+                "fecha_subida": entrada.get("upload_date") or "00000000",
             }
         )
     return videos
@@ -157,7 +158,55 @@ def obtener_transcripcion(
         return None
 
 
+def descargar_audio(video: dict, carpeta_destino: Path, cookies_from_browser: str = None) -> bool:
+    opciones_info = {
+        "quiet": True,
+        "no_warnings": True,
+    }
+    if cookies_from_browser:
+        opciones_info["cookiesfrombrowser"] = (cookies_from_browser,)
 
+    try:
+        # Extraemos la información real del video para asegurar tener la fecha de subida
+        with yt_dlp.YoutubeDL(opciones_info) as ydl_info:
+            info = ydl_info.extract_info(video["url"], download=False)
+            
+        fecha = info.get("upload_date") or video.get("fecha_subida") or "00000000"
+        if len(fecha) == 8:
+            fecha_str = f"{fecha[:4]}-{fecha[4:6]}-{fecha[6:]}"
+        else:
+            fecha_str = fecha
+            
+        titulo_sanitizado = slugify(info.get("title") or video["titulo"])
+        nombre_archivo = f"[{fecha_str}] - [{titulo_sanitizado}].mp3"
+        ruta_salida = carpeta_destino / nombre_archivo
+        
+        if ruta_salida.exists():
+            print(f"    -> Audio ya descargado ({nombre_archivo}), saltando...")
+            return True
+
+        print(f"    -> Descargando audio ({nombre_archivo})...")
+        opciones_audio = {
+            "format": "bestaudio/best",
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }],
+            "outtmpl": str(carpeta_destino / f"[{fecha_str}] - [{titulo_sanitizado}].%(ext)s"),
+            "quiet": True,
+            "no_warnings": True,
+        }
+
+        if cookies_from_browser:
+            opciones_audio["cookiesfrombrowser"] = (cookies_from_browser,)
+
+        with yt_dlp.YoutubeDL(opciones_audio) as ydl:
+            ydl.download([video["url"]])
+        return True
+    except Exception as e:
+        print(f"    [!] Error al descargar audio para {video['id']}: {e}")
+        return False
 
 
 def main() -> int:
@@ -198,6 +247,16 @@ def main() -> int:
     parser.add_argument(
         "--cookies-from-browser",
         help="Navegador para extraer cookies (ej. chrome, firefox, safari, edge) para evitar bloqueos de YouTube.",
+    )
+    parser.add_argument(
+        "--audio",
+        action="store_true",
+        help="Descargar el audio del video en formato MP3.",
+    )
+    parser.add_argument(
+        "--sin-texto",
+        action="store_true",
+        help="No descargar la transcripción de texto (útil si solo quieres el audio).",
     )
     args = parser.parse_args()
 
@@ -244,40 +303,39 @@ def main() -> int:
             nombre_archivo = f"{video['id']}.txt"
             archivo_destino = carpeta_persona / nombre_archivo
 
-            # Si el archivo ya existe, lo saltamos (resiliencia para reanudar)
-            if archivo_destino.exists():
-                print("    -> Ya descargado, saltando...")
-                resultados.append({
-                    **video,
-                    "texto": "(Cacheado en disco)",
-                    "idioma": "n/d",
-                    "error": None
-                })
-                continue
-
-            resultado = obtener_transcripcion(ydl_transcripciones, video["id"], idiomas)
-
             item = {**video, "texto": None, "idioma": None, "error": None}
             carpeta_persona.mkdir(parents=True, exist_ok=True)
 
-            if resultado:
-                texto, idioma = resultado
-                item["texto"] = texto
-                item["idioma"] = idioma
-                print(f"    OK: Transcripción ({idioma}), {len(texto)} caracteres")
-                
-                # Guardar el archivo de texto en disco de forma instantánea
-                contenido = (
-                    f"Título: {item['titulo']}\n"
-                    f"URL: {item['url']}\n"
-                    f"Idioma transcripción: {idioma}\n"
-                    f"{'-' * 60}\n\n"
-                    f"{texto}\n"
-                )
-                archivo_destino.write_text(contenido, encoding="utf-8")
-            else:
-                item["error"] = "sin_transcripcion"
-                print("    NO: Sin transcripción disponible")
+            if not args.sin_texto:
+                # Si el archivo ya existe, lo saltamos (resiliencia para reanudar)
+                if archivo_destino.exists():
+                    print("    -> Transcripción ya descargada, saltando...")
+                    item["texto"] = "(Cacheado en disco)"
+                    item["idioma"] = "n/d"
+                else:
+                    resultado = obtener_transcripcion(ydl_transcripciones, video["id"], idiomas)
+
+                    if resultado:
+                        texto, idioma = resultado
+                        item["texto"] = texto
+                        item["idioma"] = idioma
+                        print(f"    OK: Transcripción ({idioma}), {len(texto)} caracteres")
+                        
+                        # Guardar el archivo de texto en disco de forma instantánea
+                        contenido = (
+                            f"Título: {item['titulo']}\n"
+                            f"URL: {item['url']}\n"
+                            f"Idioma transcripción: {idioma}\n"
+                            f"{'-' * 60}\n\n"
+                            f"{texto}\n"
+                        )
+                        archivo_destino.write_text(contenido, encoding="utf-8")
+                    else:
+                        item["error"] = "sin_transcripcion"
+                        print("    NO: Sin transcripción disponible")
+            
+            if args.audio:
+                descargar_audio(video, carpeta_persona, args.cookies_from_browser)
 
             resultados.append(item)
             
