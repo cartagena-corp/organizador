@@ -12,6 +12,7 @@ import json
 import re
 import sys
 import time
+import random
 from pathlib import Path
 
 import yt_dlp
@@ -86,7 +87,9 @@ def obtener_transcripcion(
     url = f"https://www.youtube.com/watch?v={video_id}"
 
     try:
-        info = ydl.extract_info(url, download=False)
+        info = ydl.extract_info(url, download=False, process=False)
+        if not info:
+            return None
         
         # Unimos subtítulos manuales y automáticos
         subtitulos = {}
@@ -153,37 +156,7 @@ def obtener_transcripcion(
         return None
 
 
-def guardar_resultados(
-    carpeta: Path,
-    persona: str,
-    videos: list[dict],
-    transcripciones: list[dict],
-) -> None:
-    carpeta.mkdir(parents=True, exist_ok=True)
 
-    indice = {
-        "persona": persona,
-        "total_videos": len(videos),
-        "con_transcripcion": sum(1 for t in transcripciones if t.get("texto")),
-        "videos": transcripciones,
-    }
-    (carpeta / "indice.json").write_text(
-        json.dumps(indice, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-    for item in transcripciones:
-        if not item.get("texto"):
-            continue
-        nombre_archivo = f"{item['id']}.txt"
-        contenido = (
-            f"Título: {item['titulo']}\n"
-            f"URL: {item['url']}\n"
-            f"Idioma transcripción: {item.get('idioma', 'n/d')}\n"
-            f"{'-' * 60}\n\n"
-            f"{item['texto']}\n"
-        )
-        (carpeta / nombre_archivo).write_text(contenido, encoding="utf-8")
 
 
 def main() -> int:
@@ -218,8 +191,8 @@ def main() -> int:
     parser.add_argument(
         "--pausa",
         type=float,
-        default=0.5,
-        help="Segundos entre peticiones de transcripción (default: 0.5)",
+        default=2.0,
+        help="Segundos base entre peticiones (default: 2.0). Se sumará un tiempo aleatorio extra para evitar bloqueos.",
     )
     parser.add_argument(
         "--cookies-from-browser",
@@ -268,21 +241,47 @@ def main() -> int:
             print(f"[{i}/{len(videos)}] {video['titulo'][:70]}...")
             resultado = obtener_transcripcion(ydl_transcripciones, video["id"], idiomas)
 
-        item = {**video, "texto": None, "idioma": None, "error": None}
-        if resultado:
-            texto, idioma = resultado
-            item["texto"] = texto
-            item["idioma"] = idioma
-            print(f"    OK: Transcripción ({idioma}), {len(texto)} caracteres")
-        else:
-            item["error"] = "sin_transcripcion"
-            print("    NO: Sin transcripción disponible")
+            item = {**video, "texto": None, "idioma": None, "error": None}
+            carpeta_persona.mkdir(parents=True, exist_ok=True)
 
-        resultados.append(item)
-        if i < len(videos):
-            time.sleep(args.pausa)
+            if resultado:
+                texto, idioma = resultado
+                item["texto"] = texto
+                item["idioma"] = idioma
+                print(f"    OK: Transcripción ({idioma}), {len(texto)} caracteres")
+                
+                # Guardar el archivo de texto en disco de forma instantánea
+                nombre_archivo = f"{item['id']}.txt"
+                contenido = (
+                    f"Título: {item['titulo']}\n"
+                    f"URL: {item['url']}\n"
+                    f"Idioma transcripción: {idioma}\n"
+                    f"{'-' * 60}\n\n"
+                    f"{texto}\n"
+                )
+                (carpeta_persona / nombre_archivo).write_text(contenido, encoding="utf-8")
+            else:
+                item["error"] = "sin_transcripcion"
+                print("    NO: Sin transcripción disponible")
 
-    guardar_resultados(carpeta_persona, nombre, videos, resultados)
+            resultados.append(item)
+            
+            # Actualizar el índice al vuelo
+            indice = {
+                "persona": nombre,
+                "procesados": len(resultados),
+                "total_videos": len(videos),
+                "con_transcripcion": sum(1 for t in resultados if t.get("texto")),
+                "videos": resultados,
+            }
+            (carpeta_persona / "indice.json").write_text(
+                json.dumps(indice, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+            if i < len(videos):
+                pausa_real = args.pausa + random.uniform(1.0, 3.0)
+                time.sleep(pausa_real)
 
     ok = sum(1 for r in resultados if r.get("texto"))
     print(f"\nListo. {ok}/{len(videos)} con transcripción.")
