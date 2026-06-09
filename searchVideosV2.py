@@ -2,6 +2,7 @@
 """
 Busca videos en YouTube por nombre de persona y guarda las transcripciones disponibles usando yt-dlp.
 python ./searchVideosV2.py "Jose Elias Navarro" -n 5 -o "/Users/cartagenacorp/Desktop/obsidian/raw/Jose_Elias_Navarro" -l "es,en"
+python ./searchVideosV2.py "https://www.youtube.com/@Jose_Elias_Navarro" -n 0 -o "/Users/cartagenacorp/Desktop/obsidian/raw/Jose_Elias_Navarro" -l "es,en"
 pip install yt-dlp
 """
 
