@@ -162,6 +162,7 @@ def descargar_audio(video: dict, carpeta_destino: Path, cookies_from_browser: st
     opciones_info = {
         "quiet": True,
         "no_warnings": True,
+        "extractor_args": {"youtube": {"player_client": ["web,android"]}},
     }
     if cookies_from_browser:
         opciones_info["cookiesfrombrowser"] = (cookies_from_browser,)
@@ -187,15 +188,16 @@ def descargar_audio(video: dict, carpeta_destino: Path, cookies_from_browser: st
 
         print(f"    -> Descargando audio ({nombre_archivo})...")
         opciones_audio = {
-            "format": "bestaudio/best",
+            "format": "bestaudio/bestvideo+bestaudio/best",
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-                "preferredquality": "192",
+                "preferredquality": "0",
             }],
             "outtmpl": str(carpeta_destino / f"[{fecha_str}] - [{titulo_sanitizado}].%(ext)s"),
             "quiet": True,
             "no_warnings": True,
+            "extractor_args": {"youtube": {"player_client": ["web,android"]}},
         }
 
         if cookies_from_browser:
