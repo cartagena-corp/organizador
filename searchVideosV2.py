@@ -239,6 +239,21 @@ def main() -> int:
     with yt_dlp.YoutubeDL(opciones_transcript) as ydl_transcripciones:
         for i, video in enumerate(videos, start=1):
             print(f"[{i}/{len(videos)}] {video['titulo'][:70]}...")
+            
+            nombre_archivo = f"{video['id']}.txt"
+            archivo_destino = carpeta_persona / nombre_archivo
+
+            # Si el archivo ya existe, lo saltamos (resiliencia para reanudar)
+            if archivo_destino.exists():
+                print("    -> Ya descargado, saltando...")
+                resultados.append({
+                    **video,
+                    "texto": "(Cacheado en disco)",
+                    "idioma": "n/d",
+                    "error": None
+                })
+                continue
+
             resultado = obtener_transcripcion(ydl_transcripciones, video["id"], idiomas)
 
             item = {**video, "texto": None, "idioma": None, "error": None}
@@ -251,7 +266,6 @@ def main() -> int:
                 print(f"    OK: Transcripción ({idioma}), {len(texto)} caracteres")
                 
                 # Guardar el archivo de texto en disco de forma instantánea
-                nombre_archivo = f"{item['id']}.txt"
                 contenido = (
                     f"Título: {item['titulo']}\n"
                     f"URL: {item['url']}\n"
@@ -259,7 +273,7 @@ def main() -> int:
                     f"{'-' * 60}\n\n"
                     f"{texto}\n"
                 )
-                (carpeta_persona / nombre_archivo).write_text(contenido, encoding="utf-8")
+                archivo_destino.write_text(contenido, encoding="utf-8")
             else:
                 item["error"] = "sin_transcripcion"
                 print("    NO: Sin transcripción disponible")
