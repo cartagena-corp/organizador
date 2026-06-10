@@ -2,3 +2,11 @@
 *.mkv
 *.mp3*
 test*.py
+*_webm*
+*.webm*
+*_mp4*
+*.mp4*
+*_mkv*
+*.mkv*
+*_mp3*
+*.mp3*

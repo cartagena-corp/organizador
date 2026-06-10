@@ -3,6 +3,10 @@
 Busca videos en YouTube por nombre de persona y guarda las transcripciones disponibles usando yt-dlp.
 python ./searchVideosV2.py "Jose Elias Navarro" -n 5 -o "/Users/cartagenacorp/Desktop/obsidian/raw/Jose_Elias_Navarro" -l "es,en"
 python ./searchVideosV2.py "https://www.youtube.com/@Jose_Elias_Navarro" -n 0 -o "/Users/cartagenacorp/Desktop/obsidian/raw/Jose_Elias_Navarro" -l "es,en"
+python ./searchVideosV2.py "https://www.youtube.com/@Jose_Elias_Navarro" -n 0 -o "/Users/cartagenacorp/Desktop/obsidian/raw/Jose_Elias_Navarro" --audio --sin-texto --cookies-from-browser chrome
+python ./searchVideosV2.py "https://www.youtube.com/@DotCSV/videos" -n 0 -o "/Users/cartagenacorp/Desktop/obsidian/raw/DotCSV" --cookies-from-browser chrome
+python ./searchVideosV2.py "https://www.youtube.com/@DotCSVLab/videos" -n 0 -o "/Users/cartagenacorp/Desktop/obsidian/raw/DotCSVLab" --cookies-from-browser chrome
+python ./searchVideosV2.py "https://www.youtube.com/@DotCSVLab/videos" -n 0 -o "/Users/cartagenacorp/Desktop/obsidian/raw/DotCSVLab" --audio --sin-texto --cookies-from-browser chrome
 pip install yt-dlp
 """
 
@@ -162,7 +166,7 @@ def descargar_audio(video: dict, carpeta_destino: Path, cookies_from_browser: st
     opciones_info = {
         "quiet": True,
         "no_warnings": True,
-        "extractor_args": {"youtube": {"player_client": ["web,android"]}},
+        "extractor_args": {"youtube": {"player_client": ["android_vr", "web"]}},
     }
     if cookies_from_browser:
         opciones_info["cookiesfrombrowser"] = (cookies_from_browser,)
@@ -179,25 +183,28 @@ def descargar_audio(video: dict, carpeta_destino: Path, cookies_from_browser: st
             fecha_str = fecha
             
         titulo_sanitizado = slugify(info.get("title") or video["titulo"])
-        nombre_archivo = f"[{fecha_str}] - [{titulo_sanitizado}].mp3"
-        ruta_salida = carpeta_destino / nombre_archivo
+        nombre_archivo_m4a = f"[{fecha_str}] - [{titulo_sanitizado}].m4a"
+        nombre_archivo_mp3 = f"[{fecha_str}] - [{titulo_sanitizado}].mp3"
         
-        if ruta_salida.exists():
-            print(f"    -> Audio ya descargado ({nombre_archivo}), saltando...")
+        if (carpeta_destino / nombre_archivo_m4a).exists():
+            print(f"    -> Audio ya descargado ({nombre_archivo_m4a}), saltando...")
+            return True
+        if (carpeta_destino / nombre_archivo_mp3).exists():
+            print(f"    -> Audio ya descargado ({nombre_archivo_mp3}), saltando...")
             return True
 
-        print(f"    -> Descargando audio ({nombre_archivo})...")
+        print(f"    -> Descargando audio ({nombre_archivo_m4a})...")
         opciones_audio = {
-            "format": "bestaudio/bestvideo+bestaudio/best",
+            "format": "bestaudio[ext=m4a]/bestaudio/best",
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
+                "preferredcodec": "m4a",
                 "preferredquality": "0",
             }],
             "outtmpl": str(carpeta_destino / f"[{fecha_str}] - [{titulo_sanitizado}].%(ext)s"),
             "quiet": True,
             "no_warnings": True,
-            "extractor_args": {"youtube": {"player_client": ["web,android"]}},
+            "extractor_args": {"youtube": {"player_client": ["android_vr", "web"]}},
         }
 
         if cookies_from_browser:
