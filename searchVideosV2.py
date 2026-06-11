@@ -7,6 +7,7 @@ python ./searchVideosV2.py "https://www.youtube.com/@Jose_Elias_Navarro" -n 0 -o
 python ./searchVideosV2.py "https://www.youtube.com/@DotCSV/videos" -n 0 -o "/Users/cartagenacorp/Desktop/obsidian/raw/DotCSV" --cookies-from-browser chrome
 python ./searchVideosV2.py "https://www.youtube.com/@DotCSVLab/videos" -n 0 -o "/Users/cartagenacorp/Desktop/obsidian/raw/DotCSVLab" --cookies-from-browser chrome
 python ./searchVideosV2.py "https://www.youtube.com/@DotCSVLab/videos" -n 0 -o "/Users/cartagenacorp/Desktop/obsidian/raw/DotCSVLab" --audio --sin-texto --cookies-from-browser chrome
+python ./searchVideosV2.py "https://www.youtube.com/@AshMaurya/videos" -n 0 -o "/Users/cartagenacorp/Desktop/obsidian/raw/AshMaurya" --cookies-from-browser chrome
 pip install yt-dlp
 """
 
@@ -92,74 +93,83 @@ def obtener_transcripcion(
 ) -> tuple[str, str] | None:
     url = f"https://www.youtube.com/watch?v={video_id}"
 
-    try:
-        info = ydl.extract_info(url, download=False, process=False)
-        if not info:
+    intentos_max = 4
+    for intento in range(intentos_max):
+        try:
+            info = ydl.extract_info(url, download=False, process=False)
+            if not info:
+                return None
+            
+            # Unimos subtítulos manuales y automáticos
+            subtitulos = {}
+            if info.get("subtitles"):
+                subtitulos.update(info["subtitles"])
+            if info.get("automatic_captions"):
+                subtitulos.update(info["automatic_captions"])
+
+            if not subtitulos:
+                return None
+
+            # Buscar en el orden de idiomas preferidos
+            idioma_detectado = None
+            for lang in idiomas_preferidos:
+                if lang in subtitulos:
+                    idioma_detectado = lang
+                    break
+            
+            # Si no encuentra ninguno de los preferidos, toma el primero que haya disponible
+            if not idioma_detectado:
+                idioma_detectado = next(iter(subtitulos.keys()))
+
+            formatos = subtitulos[idioma_detectado]
+            
+            # Intentamos buscar el formato 'json3' que es el más fácil de limpiar de texto plano
+            url_sub = None
+            for f in formatos:
+                if f.get("ext") == "json3":
+                    url_sub = f.get("url")
+                    break
+            
+            # Si no hay json3, agarramos cualquiera (vtt, srv3, etc.)
+            if not url_sub and formatos:
+                url_sub = formatos[0].get("url")
+
+            if not url_sub:
+                return None
+
+            # Descargamos los subtítulos usando el cliente de yt-dlp
+            with ydl.urlopen(url_sub) as respuesta:
+                contenido = respuesta.read().decode("utf-8")
+
+            # Si es formato json3 (formato interno de YouTube), lo limpiamos limpiamente
+            if "events" in contenido:
+                data = json.loads(contenido)
+                lineas = []
+                for event in data.get("events", []):
+                    if "segs" in event:
+                        texto_segmento = "".join(seg["utf8"] for seg in event["segs"] if seg.get("utf8"))
+                        texto_limpio = texto_segmento.strip()
+                        if texto_limpio:
+                            lineas.append(texto_limpio)
+                texto_final = "\n".join(lineas)
+            else:
+                # Si cayó en formato VTT/SRT, removemos marcas de tiempo básicas con regex
+                texto_final = re.sub(r"\d{2}:\d{2}:\d{2}[,.]\d{3} --> \d{2}:\d{2}:\d{2}[,.]\d{3}", "", contenido)
+                texto_final = re.sub(r"<[^>]*>", "", texto_final)  # Quitar tags HTML si hay
+                texto_final = "\n".join(line.strip() for line in texto_final.splitlines() if line.strip())
+
+            return texto_final, idioma_detectado
+
+        except Exception as e:
+            if "429" in str(e) or "Too Many Requests" in str(e):
+                if intento < intentos_max - 1:
+                    tiempo_espera = 60 * (2 ** intento) # 60, 120, 240
+                    print(f"    [!] HTTP Error 429 detectado. Esperando {tiempo_espera}s antes de reintentar...")
+                    time.sleep(tiempo_espera)
+                    continue
+            print(f"    [!] Error al extraer con yt-dlp para {video_id}: {e}")
             return None
-        
-        # Unimos subtítulos manuales y automáticos
-        subtitulos = {}
-        if info.get("subtitles"):
-            subtitulos.update(info["subtitles"])
-        if info.get("automatic_captions"):
-            subtitulos.update(info["automatic_captions"])
-
-        if not subtitulos:
-            return None
-
-        # Buscar en el orden de idiomas preferidos
-        idioma_detectado = None
-        for lang in idiomas_preferidos:
-            if lang in subtitulos:
-                idioma_detectado = lang
-                break
-        
-        # Si no encuentra ninguno de los preferidos, toma el primero que haya disponible
-        if not idioma_detectado:
-            idioma_detectado = next(iter(subtitulos.keys()))
-
-        formatos = subtitulos[idioma_detectado]
-        
-        # Intentamos buscar el formato 'json3' que es el más fácil de limpiar de texto plano
-        url_sub = None
-        for f in formatos:
-            if f.get("ext") == "json3":
-                url_sub = f.get("url")
-                break
-        
-        # Si no hay json3, agarramos cualquiera (vtt, srv3, etc.)
-        if not url_sub and formatos:
-            url_sub = formatos[0].get("url")
-
-        if not url_sub:
-            return None
-
-        # Descargamos los subtítulos usando el cliente de yt-dlp
-        with ydl.urlopen(url_sub) as respuesta:
-            contenido = respuesta.read().decode("utf-8")
-
-        # Si es formato json3 (formato interno de YouTube), lo limpiamos limpiamente
-        if "events" in contenido:
-            data = json.loads(contenido)
-            lineas = []
-            for event in data.get("events", []):
-                if "segs" in event:
-                    texto_segmento = "".join(seg["utf8"] for seg in event["segs"] if seg.get("utf8"))
-                    texto_limpio = texto_segmento.strip()
-                    if texto_limpio:
-                        lineas.append(texto_limpio)
-            texto_final = "\n".join(lineas)
-        else:
-            # Si cayó en formato VTT/SRT, removemos marcas de tiempo básicas con regex
-            texto_final = re.sub(r"\d{2}:\d{2}:\d{2}[,.]\d{3} --> \d{2}:\d{2}:\d{2}[,.]\d{3}", "", contenido)
-            texto_final = re.sub(r"<[^>]*>", "", texto_final)  # Quitar tags HTML si hay
-            texto_final = "\n".join(line.strip() for line in texto_final.splitlines() if line.strip())
-
-        return texto_final, idioma_detectado
-
-    except Exception as e:
-        print(f"    [!] Error al extraer con yt-dlp para {video_id}: {e}")
-        return None
+    return None
 
 
 def descargar_audio(video: dict, carpeta_destino: Path, cookies_from_browser: str = None) -> bool:
@@ -171,51 +181,60 @@ def descargar_audio(video: dict, carpeta_destino: Path, cookies_from_browser: st
     if cookies_from_browser:
         opciones_info["cookiesfrombrowser"] = (cookies_from_browser,)
 
-    try:
-        # Extraemos la información real del video para asegurar tener la fecha de subida
-        with yt_dlp.YoutubeDL(opciones_info) as ydl_info:
-            info = ydl_info.extract_info(video["url"], download=False)
+    intentos_max = 4
+    for intento in range(intentos_max):
+        try:
+            # Extraemos la información real del video para asegurar tener la fecha de subida
+            with yt_dlp.YoutubeDL(opciones_info) as ydl_info:
+                info = ydl_info.extract_info(video["url"], download=False)
+                
+            fecha = info.get("upload_date") or video.get("fecha_subida") or "00000000"
+            if len(fecha) == 8:
+                fecha_str = f"{fecha[:4]}-{fecha[4:6]}-{fecha[6:]}"
+            else:
+                fecha_str = fecha
+                
+            titulo_sanitizado = slugify(info.get("title") or video["titulo"])
+            nombre_archivo_m4a = f"[{fecha_str}] - [{titulo_sanitizado}].m4a"
+            nombre_archivo_mp3 = f"[{fecha_str}] - [{titulo_sanitizado}].mp3"
             
-        fecha = info.get("upload_date") or video.get("fecha_subida") or "00000000"
-        if len(fecha) == 8:
-            fecha_str = f"{fecha[:4]}-{fecha[4:6]}-{fecha[6:]}"
-        else:
-            fecha_str = fecha
-            
-        titulo_sanitizado = slugify(info.get("title") or video["titulo"])
-        nombre_archivo_m4a = f"[{fecha_str}] - [{titulo_sanitizado}].m4a"
-        nombre_archivo_mp3 = f"[{fecha_str}] - [{titulo_sanitizado}].mp3"
-        
-        if (carpeta_destino / nombre_archivo_m4a).exists():
-            print(f"    -> Audio ya descargado ({nombre_archivo_m4a}), saltando...")
+            if (carpeta_destino / nombre_archivo_m4a).exists():
+                print(f"    -> Audio ya descargado ({nombre_archivo_m4a}), saltando...")
+                return True
+            if (carpeta_destino / nombre_archivo_mp3).exists():
+                print(f"    -> Audio ya descargado ({nombre_archivo_mp3}), saltando...")
+                return True
+
+            print(f"    -> Descargando audio ({nombre_archivo_m4a})...")
+            opciones_audio = {
+                "format": "bestaudio[ext=m4a]/bestaudio/best",
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "m4a",
+                    "preferredquality": "0",
+                }],
+                "outtmpl": str(carpeta_destino / f"[{fecha_str}] - [{titulo_sanitizado}].%(ext)s"),
+                "quiet": True,
+                "no_warnings": True,
+                "extractor_args": {"youtube": {"player_client": ["android_vr", "web"]}},
+            }
+
+            if cookies_from_browser:
+                opciones_audio["cookiesfrombrowser"] = (cookies_from_browser,)
+
+            with yt_dlp.YoutubeDL(opciones_audio) as ydl:
+                ydl.download([video["url"]])
             return True
-        if (carpeta_destino / nombre_archivo_mp3).exists():
-            print(f"    -> Audio ya descargado ({nombre_archivo_mp3}), saltando...")
-            return True
-
-        print(f"    -> Descargando audio ({nombre_archivo_m4a})...")
-        opciones_audio = {
-            "format": "bestaudio[ext=m4a]/bestaudio/best",
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "m4a",
-                "preferredquality": "0",
-            }],
-            "outtmpl": str(carpeta_destino / f"[{fecha_str}] - [{titulo_sanitizado}].%(ext)s"),
-            "quiet": True,
-            "no_warnings": True,
-            "extractor_args": {"youtube": {"player_client": ["android_vr", "web"]}},
-        }
-
-        if cookies_from_browser:
-            opciones_audio["cookiesfrombrowser"] = (cookies_from_browser,)
-
-        with yt_dlp.YoutubeDL(opciones_audio) as ydl:
-            ydl.download([video["url"]])
-        return True
-    except Exception as e:
-        print(f"    [!] Error al descargar audio para {video['id']}: {e}")
-        return False
+        except Exception as e:
+            if "429" in str(e) or "Too Many Requests" in str(e):
+                if intento < intentos_max - 1:
+                    tiempo_espera = 60 * (2 ** intento) # 60, 120, 240
+                    print(f"    [!] HTTP Error 429 al descargar audio. Esperando {tiempo_espera}s antes de reintentar...")
+                    time.sleep(tiempo_espera)
+                    continue
+            print(f"    [!] Error al descargar audio para {video['id']}: {e}")
+            return False
+    return False
 
 
 def main() -> int:
